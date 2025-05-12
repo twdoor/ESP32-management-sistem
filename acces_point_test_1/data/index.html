@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:,">
+    <style>
+        html { 
+            font-family: Helvetica; 
+            display: inline-block; 
+            margin: 0px auto; 
+            text-align: center;
+        }
+        .button { 
+            background-color: #4CAF50; 
+            border: none; 
+            color: white; 
+            padding: 16px 40px;
+            text-decoration: none; 
+            font-size: 30px; 
+            margin: 2px; 
+            cursor: pointer;
+        }
+        .button2 {
+            background-color: #555555;
+        }
+        .sensor-value {
+            font-size: 24px;
+            color: #333;
+            margin: 20px;
+            padding: 10px;
+            border: 2px solid #4CAF50;
+            border-radius: 5px;
+            display: inline-block;
+        }
+        .value-changed {
+            background-color: #fff3cd;
+            transition: background-color 0.5s;
+        }
+    </style>
+</head>
+<body>
+    <h1>ESP32 Web Server</h1>
+    
+    <div class="sensor-value" id="sensorDisplay">
+        <p>Light Sensor Value: <span id="lightValue">%LIGHT_VALUE%</span></p>
+    </div>
+    
+    <p>GPIO 26 - State %STATE26%</p>
+    %BUTTON_26%
+    
+    <p>GPIO 27 - State %STATE27%</p>
+    %BUTTON_27%
+
+    <script>
+        let lastValue = %LIGHT_VALUE%;
+        
+        function updateSensorValue() {
+            fetch('/sensor')
+                .then(response => response.text())
+                .then(value => {
+                    const newValue = parseInt(value);
+                    if (newValue !== lastValue) {
+                        const display = document.getElementById('sensorDisplay');
+                        const valueSpan = document.getElementById('lightValue');
+                        valueSpan.textContent = newValue;
+                        
+                        // Add highlight effect
+                        display.classList.add('value-changed');
+                        setTimeout(() => {
+                            display.classList.remove('value-changed');
+                        }, 500);
+                        
+                        lastValue = newValue;
+                    }
+                })
+                .catch(error => console.log('Error:', error));
+        }
+
+        // Check for updates every 100ms
+        setInterval(updateSensorValue, 100);
+    </script>
+</body>
+</html>
