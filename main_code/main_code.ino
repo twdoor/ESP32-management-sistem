@@ -17,18 +17,24 @@ const bool CREATE_AP = true;  // Set to true to create an AP, false to connect t
 // Device IDs - must be unique for each device in your network
 const uint8_t DEVICE_ID = 1; // 1 for master, 2+ for slaves
 
+// Module type configuration - determines which sensors this device has
+// 0 = No sensors (master only, no sensor data)
+// 1 = Temperature & Humidity sensor (e.g., DHT22, BME280)
+// 2 = Light sensor (e.g., LDR, TSL2561)
+const uint8_t MODULE_TYPE = 2;  // Set to 0 for master, 1 for temp/hum, 2 for light
+
 // Update interval in milliseconds
 const unsigned long UPDATE_INTERVAL = 10000;
-const unsigned long DISPLAY_UPDATE_INTERVAL = 1000; // Update display more frequently
+const unsigned long DISPLAY_UPDATE_INTERVAL = 1000;
 
 // ==================== WIFI & AP SETTINGS ====================
 // For connecting to existing WiFi (when CREATE_AP = false)
-const char* wifi_ssid = "TP-Link_20C8";
-const char* wifi_password = "70458572";
+const char* wifi_ssid = "YOUR_WIFI_SSID";
+const char* wifi_password = "YOUR_WIFI_PASSWORD";
 
 // For creating an Access Point (when CREATE_AP = true)
-const char* ap_ssid = "ESP32-SensorHub";  // Name of the AP
-const char* ap_password = "sensornetwork";  // Password for the AP (8+ characters or blank for open network)
+const char* ap_ssid = "ESP32-SensorHub";
+const char* ap_password = "sensornetwork";
 const IPAddress ap_ip(192, 168, 4, 1);
 const IPAddress ap_gateway(192, 168, 4, 1);
 const IPAddress ap_subnet(255, 255, 255, 0);
@@ -40,48 +46,48 @@ const char* hostname = "esp32-sensor-hub";
 WebServer server(80);
 
 // ==================== DISPLAY SETTINGS ====================
-#define SCREEN_WIDTH 128  // OLED display width, in pixels
-#define SCREEN_HEIGHT 64  // OLED display height, in pixels
-#define OLED_ADDRESS 0x3C // I2C address of the OLED display
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_ADDRESS 0x3C
 
 // Only declare and use the display object if this is a master
 Adafruit_SSD1306* displayPtr = NULL;
 
 // ==================== ESP-NOW SETTINGS ====================
-// Maximum number of peers in the network
 #define MAX_PEERS 20
 
-// Known device MAC addresses - add all your devices here
-// Format: {device_id, MAC address}
+// Known device MAC addresses and their types
 typedef struct {
   uint8_t id;
   uint8_t address[6];
-  char name[32]; // Friendly name for the device
+  char name[32];
+  uint8_t module_type; // 0=none, 1=temp/hum, 2=light
 } device_info;
 
 // Add all device MACs here - master should be first
 device_info devices[] = {
-  {1, {0xd4, 0x8a, 0xfc, 0x9f, 0x2f, 0x98}, "Master"}, // Master
-  {2, {0x94, 0xb5, 0x55, 0xf9, 0xff, 0xf0}, "Outdoor"} // Slave 1
-  // Add more slaves as needed
+  {1, {0xd4, 0x8a, 0xfc, 0x9f, 0x2f, 0x98}, "Master", 0},     // Master - no sensors
+  {2, {0x94, 0xb5, 0x55, 0xf9, 0xff, 0xf0}, "Outdoor", 1},   // Temp/Humidity sensor
+  {3, {0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc}, "Indoor", 2}     // Light sensor
+  // Add more devices as needed
 };
 const int NUM_DEVICES = sizeof(devices) / sizeof(device_info);
 
 // ==================== DATA STRUCTURES ====================
 // Data structure for sending readings
 typedef struct sensor_message {
-  uint8_t sender_id;       // ID of the sending device
-  float temperature;
-  float humidity;
-  float pressure;
-  float battery_voltage;   // Optional battery level monitoring
-  unsigned long timestamp; // Milliseconds since boot
+  uint8_t sender_id;
+  uint8_t module_type;     // Type of module sending data
+  float temperature;       // Only valid for module_type 1
+  float humidity;          // Only valid for module_type 1
+  float light_value;       // Only valid for module_type 2 (0-100%)
+  unsigned long timestamp;
 } sensor_message;
 
 // Array to store the latest readings from each device
 sensor_message deviceReadings[MAX_PEERS];
-bool deviceActive[MAX_PEERS] = {false}; // Track which devices are active
-unsigned long deviceLastSeen[MAX_PEERS] = {0}; // Last time each device was seen
+bool deviceActive[MAX_PEERS] = {false};
+unsigned long deviceLastSeen[MAX_PEERS] = {0};
 
 // Variable to store transmission status
 String lastTransmitStatus = "None";
@@ -89,7 +95,7 @@ String lastTransmitStatus = "None";
 // ==================== FUNCTION DECLARATIONS ====================
 void initESPNow();
 void registerPeers();
-void getSensorReadings(float &temp, float &hum, float &pres, float &batt);
+void getSensorReadings(float &temp, float &hum, float &light);
 void sendReadings();
 void updateDisplay();
 void handleReceivedData(const sensor_message &reading);
@@ -104,31 +110,37 @@ void handleRoot();
 void handleData();
 void handleNotFound();
 String getDeviceName(uint8_t id);
+String getModuleTypeName(uint8_t type);
 String getTimeAgo(unsigned long timestamp);
 String getStatusHTML();
 
 // ==================== SETUP ====================
 void setup() {
-  // Initialize Serial
   Serial.begin(115200);
   Serial.println();
   Serial.print("Initializing ");
   Serial.println(IS_MASTER ? "MASTER" : "SLAVE");
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);
+  Serial.print("Module Type: ");
+  Serial.print(MODULE_TYPE);
+  Serial.print(" (");
+  Serial.print(getModuleTypeName(MODULE_TYPE));
+  Serial.println(")");
 
   // Initialize device array with invalid values
   for (int i = 0; i < MAX_PEERS; i++) {
     deviceReadings[i].sender_id = 0;
+    deviceReadings[i].module_type = 0;
     deviceReadings[i].temperature = -999;
     deviceReadings[i].humidity = -999;
-    deviceReadings[i].pressure = -999;
-    deviceReadings[i].battery_voltage = -999;
+    deviceReadings[i].light_value = -999;
     deviceReadings[i].timestamp = 0;
   }
 
   // Set this device's own reading
   deviceReadings[DEVICE_ID - 1].sender_id = DEVICE_ID;
+  deviceReadings[DEVICE_ID - 1].module_type = MODULE_TYPE;
   deviceActive[DEVICE_ID - 1] = true;
   deviceLastSeen[DEVICE_ID - 1] = millis();
 
@@ -141,7 +153,6 @@ void setup() {
     
     if (!displayPtr->begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
       Serial.println(F("SSD1306 allocation failed"));
-      // Clean up if initialization failed
       delete displayPtr;
       displayPtr = NULL;
     } else {
@@ -176,17 +187,16 @@ unsigned long lastDisplayUpdate = 0;
 void loop() {
   unsigned long currentTime = millis();
   
-  // Check if it's time to send data
-  if (currentTime - lastSendTime >= UPDATE_INTERVAL) {
-    // Get sensor readings
-    float temp, hum, pres, batt;
-    getSensorReadings(temp, hum, pres, batt);
+  // Check if it's time to send data (only if module has sensors)
+  if (currentTime - lastSendTime >= UPDATE_INTERVAL && MODULE_TYPE > 0) {
+    // Get sensor readings based on module type
+    float temp, hum, light;
+    getSensorReadings(temp, hum, light);
     
     // Update local device readings
     deviceReadings[DEVICE_ID - 1].temperature = temp;
     deviceReadings[DEVICE_ID - 1].humidity = hum;
-    deviceReadings[DEVICE_ID - 1].pressure = pres;
-    deviceReadings[DEVICE_ID - 1].battery_voltage = batt;
+    deviceReadings[DEVICE_ID - 1].light_value = light;
     deviceReadings[DEVICE_ID - 1].timestamp = currentTime;
     deviceLastSeen[DEVICE_ID - 1] = currentTime;
     
@@ -217,12 +227,10 @@ void loop() {
 
 // ==================== WIFI/AP FUNCTIONS ====================
 void setupWiFi() {
-  // Connect to existing WiFi network
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(wifi_ssid, wifi_password);
   Serial.print("Connecting to WiFi");
   
-  // Wait for connection
   int wifiRetries = 0;
   while (WiFi.status() != WL_CONNECTED && wifiRetries < 20) {
     delay(500);
@@ -256,7 +264,6 @@ void setupWiFi() {
       delay(2000);
     }
     
-    // Set up mDNS responder
     if (MDNS.begin(hostname)) {
       Serial.println("mDNS responder started");
       Serial.print("You can access the server at http://");
@@ -279,19 +286,13 @@ void setupWiFi() {
 }
 
 void setupAccessPoint() {
-  // Create Access Point
   WiFi.mode(WIFI_AP_STA);
-  
-  // Configure the access point
   WiFi.softAPConfig(ap_ip, ap_gateway, ap_subnet);
   
-  // Start the access point
   bool apStarted = false;
   if (strlen(ap_password) >= 8) {
-    // Secure access point with password
     apStarted = WiFi.softAP(ap_ssid, ap_password);
   } else {
-    // Open access point without password
     apStarted = WiFi.softAP(ap_ssid);
   }
   
@@ -334,47 +335,41 @@ void setupAccessPoint() {
 
 // ==================== ESP-NOW FUNCTIONS ====================
 void initESPNow() {
-  // ESP-NOW initialization (WiFi mode is already set in WiFi/AP setup for master)
   if (!IS_MASTER) {
-    // For slaves, set WiFi mode to station only
     WiFi.mode(WIFI_STA);
   }
   
-  // Print MAC address
   Serial.print("MAC Address: ");
   Serial.println(WiFi.macAddress());
   
-  // Initialize ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
   
-  // Register callbacks
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
   
-  // Register peers
   registerPeers();
 }
 
 void registerPeers() {
-  // Register all devices as peers (except ourselves)
   for (int i = 0; i < NUM_DEVICES; i++) {
-    if (devices[i].id == DEVICE_ID) continue; // Skip ourselves
+    if (devices[i].id == DEVICE_ID) continue;
     
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, devices[i].address, 6);
     peerInfo.channel = 0;
     peerInfo.encrypt = false;
     
-    // Add peer
     esp_err_t result = esp_now_add_peer(&peerInfo);
     if (result == ESP_OK) {
       Serial.print("Peer added successfully: Device ");
       Serial.print(devices[i].id);
       Serial.print(" (");
       Serial.print(devices[i].name);
+      Serial.print(" - ");
+      Serial.print(getModuleTypeName(devices[i].module_type));
       Serial.println(")");
     } else {
       Serial.print("Failed to add peer: Device ");
@@ -387,34 +382,64 @@ void registerPeers() {
 }
 
 // ==================== SENSOR FUNCTIONS ====================
-void getSensorReadings(float &temp, float &hum, float &pres, float &batt) {
-  // Replace with actual sensor readings
-  // For now using dummy values
-  temp = 25.0 + (random(100) - 50) / 10.0; // 20.0 - 30.0°C
-  hum = 50.0 + (random(200) - 100) / 10.0; // 40.0 - 60.0%
-  pres = 1000.0 + (random(100) - 50) / 10.0; // 995.0 - 1005.0 hPa
+void getSensorReadings(float &temp, float &hum, float &light) {
+  // Initialize all values to invalid
+  temp = -999;
+  hum = -999;
+  light = -999;
   
-  // Read battery voltage if available
-  // Assuming a voltage divider on pin 34 (ADC)
-  // Adjust the formula based on your hardware setup
-  float adcValue = analogRead(34);
-  batt = adcValue * 3.3 * 2 / 4095.0; // Example formula, adjust as needed
+  switch (MODULE_TYPE) {
+    case 0:
+      // No sensors - do nothing
+      break;
+      
+    case 1: {
+      // Temperature & Humidity sensor
+      // Replace with actual sensor code (e.g., DHT22, BME280)
+      temp = 25.0 + (random(100) - 50) / 10.0; // 20.0 - 30.0°C
+      hum = 50.0 + (random(200) - 100) / 10.0; // 40.0 - 60.0%
+      Serial.print("Temperature: ");
+      Serial.print(temp);
+      Serial.print("°C, Humidity: ");
+      Serial.print(hum);
+      Serial.println("%");
+      break;
+    }
+      
+    case 2: {
+      // Light sensor
+      // Replace with actual sensor code (e.g., LDR on analog pin, TSL2561)
+      int rawValue = analogRead(A0); // Read from analog pin A0
+      light = (rawValue / 4095.0) * 100.0; // Convert to percentage (0-100%)
+      Serial.print("Light value: ");
+      Serial.print(light);
+      Serial.println("%");
+      break;
+    }
+      
+    default:
+      Serial.println("Unknown module type");
+      break;
+  }
 }
 
 // ==================== COMMUNICATION FUNCTIONS ====================
 void sendReadings() {
+  // Only send if we have sensors
+  if (MODULE_TYPE == 0) return;
+  
   // Prepare message
   sensor_message message;
   message.sender_id = DEVICE_ID;
+  message.module_type = MODULE_TYPE;
   message.temperature = deviceReadings[DEVICE_ID - 1].temperature;
   message.humidity = deviceReadings[DEVICE_ID - 1].humidity;
-  message.pressure = deviceReadings[DEVICE_ID - 1].pressure;
-  message.battery_voltage = deviceReadings[DEVICE_ID - 1].battery_voltage;
+  message.light_value = deviceReadings[DEVICE_ID - 1].light_value;
   message.timestamp = millis();
   
   // Send to all registered peers
   for (int i = 0; i < NUM_DEVICES; i++) {
-    if (devices[i].id == DEVICE_ID) continue; // Skip ourselves
+    if (devices[i].id == DEVICE_ID) continue;
     
     esp_err_t result = esp_now_send(devices[i].address, (uint8_t *)&message, sizeof(message));
     
@@ -442,32 +467,37 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   lastTransmitStatus = status == ESP_NOW_SEND_SUCCESS ? "OK" : "FAIL";
 }
 
-// Updated callback function for newer ESP-NOW API
 void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
   if (len == sizeof(sensor_message)) {
-    // Cast incoming data to our structure
     sensor_message *incomingData = (sensor_message*)data;
     
-    // Process received data
     handleReceivedData(*incomingData);
     
-    // Debug output
     Serial.print("Received data from Device ");
-    Serial.println(incomingData->sender_id);
-    Serial.print("Temperature: ");
-    Serial.println(incomingData->temperature);
-    Serial.print("Humidity: ");
-    Serial.println(incomingData->humidity);
-    Serial.print("Pressure: ");
-    Serial.println(incomingData->pressure);
-    Serial.print("Battery: ");
-    Serial.println(incomingData->battery_voltage);
+    Serial.print(incomingData->sender_id);
+    Serial.print(" (");
+    Serial.print(getModuleTypeName(incomingData->module_type));
+    Serial.println(")");
+    
+    switch (incomingData->module_type) {
+      case 1:
+        Serial.print("Temperature: ");
+        Serial.print(incomingData->temperature);
+        Serial.print("°C, Humidity: ");
+        Serial.print(incomingData->humidity);
+        Serial.println("%");
+        break;
+      case 2:
+        Serial.print("Light: ");
+        Serial.print(incomingData->light_value);
+        Serial.println("%");
+        break;
+    }
     Serial.println();
   }
 }
 
 void handleReceivedData(const sensor_message &reading) {
-  // Store data in our array if sender_id is valid
   if (reading.sender_id > 0 && reading.sender_id <= MAX_PEERS) {
     deviceReadings[reading.sender_id - 1] = reading;
     deviceActive[reading.sender_id - 1] = true;
@@ -477,22 +507,18 @@ void handleReceivedData(const sensor_message &reading) {
 
 // ==================== DISPLAY FUNCTIONS ====================
 void updateDisplay() {
-  // Only proceed if this is master and display is initialized
   if (!IS_MASTER || displayPtr == NULL) return;
   
-  // Calculate how many active devices we have
   int activeCount = 0;
   for (int i = 0; i < MAX_PEERS; i++) {
     if (deviceActive[i]) activeCount++;
   }
   
-  // Update the display
   displayPtr->clearDisplay();
   displayPtr->setCursor(0, 0);
   displayPtr->print("ESP32 Network - ");
   displayPtr->println(DEVICE_ID);
   
-  // Display active device count
   displayPtr->print("Active: ");
   displayPtr->print(activeCount);
   displayPtr->print("/");
@@ -513,28 +539,36 @@ void updateDisplay() {
     displayPtr->println("Offline Mode");
   }
   
-  // We'll show the master's data plus up to 1 slave on the display
-  // Master's data first
-  int deviceIndex = DEVICE_ID - 1;
+  // Show active sensor devices
   displayPtr->println("-------------------");
-  displayPtr->print(getDeviceName(DEVICE_ID));
-  displayPtr->print(": ");
-  displayPtr->print(deviceReadings[deviceIndex].temperature, 1);
-  displayPtr->print("C ");
-  displayPtr->print(deviceReadings[deviceIndex].humidity, 1);
-  displayPtr->println("%");
-  
-  // Show one other active device if available
-  for (int i = 0; i < MAX_PEERS; i++) {
-    if (deviceActive[i] && i != deviceIndex) {
+  int shownDevices = 0;
+  for (int i = 0; i < MAX_PEERS && shownDevices < 2; i++) {
+    if (deviceActive[i] && deviceReadings[i].module_type > 0) {
       displayPtr->print(getDeviceName(i+1));
       displayPtr->print(": ");
-      displayPtr->print(deviceReadings[i].temperature, 1);
-      displayPtr->print("C ");
-      displayPtr->print(deviceReadings[i].humidity, 1);
-      displayPtr->println("%");
-      break; // Only show one other device
+      
+      switch (deviceReadings[i].module_type) {
+        case 1:
+          displayPtr->print(deviceReadings[i].temperature, 1);
+          displayPtr->print("C ");
+          displayPtr->print(deviceReadings[i].humidity, 1);
+          displayPtr->println("%");
+          break;
+        case 2:
+          displayPtr->print("Light ");
+          displayPtr->print(deviceReadings[i].light_value, 0);
+          displayPtr->println("%");
+          break;
+        default:
+          displayPtr->println("No data");
+          break;
+      }
+      shownDevices++;
     }
+  }
+  
+  if (shownDevices == 0) {
+    displayPtr->println("No sensor data");
   }
   
   displayPtr->display();
@@ -542,12 +576,10 @@ void updateDisplay() {
 
 // ==================== WEB SERVER FUNCTIONS ====================
 void initWebServer() {
-  // Set up web server routes
   server.on("/", handleRoot);
   server.on("/data", handleData);
   server.onNotFound(handleNotFound);
   
-  // Start the server
   server.begin();
   Serial.println("HTTP server started");
 }
@@ -571,6 +603,7 @@ void handleRoot() {
   html += "    .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }\n";
   html += "    .badge-success { background-color: #28a745; color: white; }\n";
   html += "    .badge-danger { background-color: #dc3545; color: white; }\n";
+  html += "    .badge-info { background-color: #17a2b8; color: white; }\n";
   html += "    .refresh-btn { display: block; width: 100%; padding: 10px; background: #0066cc; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 15px; }\n";
   html += "    .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }\n";
   html += "    .mode-info { text-align: center; padding: 5px; background-color: #f8f9fa; margin-bottom: 15px; border-radius: 5px; }\n";
@@ -638,14 +671,12 @@ void handleNotFound() {
 String getStatusHTML() {
   String html = "";
   
-  // Calculate how many active devices we have
   int activeCount = 0;
   unsigned long currentTime = millis();
   const unsigned long TIMEOUT = 5 * 60 * 1000; // 5 minutes timeout
   
   for (int i = 0; i < MAX_PEERS; i++) {
     if (deviceActive[i]) {
-      // Check if device is still active (timeout)
       if (currentTime - deviceLastSeen[i] > TIMEOUT) {
         deviceActive[i] = false;
       } else {
@@ -670,13 +701,18 @@ String getStatusHTML() {
   // Add each device's data
   for (int i = 0; i < NUM_DEVICES; i++) {
     uint8_t id = devices[i].id;
-    int idx = id - 1; // index in the readings array
+    int idx = id - 1;
     
     if (idx >= 0 && idx < MAX_PEERS) {
       html += "<div class='device'>\n";
       html += "  <h2>" + getDeviceName(id) + " (ID: " + String(id) + ")</h2>\n";
       
-      // Device status
+      // Device status and type
+      html += "  <div class='status'>\n";
+      html += "    <span>Type:</span>\n";
+      html += "    <span class='badge badge-info'>" + getModuleTypeName(devices[i].module_type) + "</span>\n";
+      html += "  </div>\n";
+      
       html += "  <div class='status'>\n";
       html += "    <span>Status:</span>\n";
       
@@ -690,37 +726,36 @@ String getStatusHTML() {
       
       html += "  </div>\n";
       
-      if (isActive) {
+      if (isActive && devices[i].module_type > 0) {
         // Last seen
         html += "  <div class='status'>\n";
         html += "    <span>Last Seen:</span>\n";
         html += "    <span>" + getTimeAgo(deviceLastSeen[idx]) + "</span>\n";
         html += "  </div>\n";
         
-        // Readings
-        html += "  <div class='reading'>\n";
-        html += "    <span>Temperature:</span>\n";
-        html += "    <span>" + String(deviceReadings[idx].temperature, 1) + " °C</span>\n";
-        html += "  </div>\n";
-        
-        html += "  <div class='reading'>\n";
-        html += "    <span>Humidity:</span>\n";
-        html += "    <span>" + String(deviceReadings[idx].humidity, 1) + " %</span>\n";
-        html += "  </div>\n";
-        
-        if (deviceReadings[idx].pressure > -900) {
-          html += "  <div class='reading'>\n";
-          html += "    <span>Pressure:</span>\n";
-          html += "    <span>" + String(deviceReadings[idx].pressure, 1) + " hPa</span>\n";
-          html += "  </div>\n";
+        // Readings based on module type
+        switch (deviceReadings[idx].module_type) {
+          case 1:
+            html += "  <div class='reading'>\n";
+            html += "    <span>Temperature:</span>\n";
+            html += "    <span>" + String(deviceReadings[idx].temperature, 1) + " °C</span>\n";
+            html += "  </div>\n";
+            html += "  <div class='reading'>\n";
+            html += "    <span>Humidity:</span>\n";
+            html += "    <span>" + String(deviceReadings[idx].humidity, 1) + " %</span>\n";
+            html += "  </div>\n";
+            break;
+          case 2:
+            html += "  <div class='reading'>\n";
+            html += "    <span>Light Level:</span>\n";
+            html += "    <span>" + String(deviceReadings[idx].light_value, 1) + " %</span>\n";
+            html += "  </div>\n";
+            break;
         }
-        
-        if (deviceReadings[idx].battery_voltage > 0) {
-          html += "  <div class='reading'>\n";
-          html += "    <span>Battery:</span>\n";
-          html += "    <span>" + String(deviceReadings[idx].battery_voltage, 2) + " V</span>\n";
-          html += "  </div>\n";
-        }
+      } else if (devices[i].module_type == 0) {
+        html += "  <div class='status'>\n";
+        html += "    <span>Master device - no sensor data</span>\n";
+        html += "  </div>\n";
       } else {
         html += "  <div class='status'>\n";
         html += "    <span>No data available</span>\n";
@@ -741,6 +776,19 @@ String getDeviceName(uint8_t id) {
     }
   }
   return "Unknown Device";
+}
+
+String getModuleTypeName(uint8_t type) {
+  switch (type) {
+    case 0:
+      return "Master/No Sensors";
+    case 1:
+      return "Temperature & Humidity";
+    case 2:
+      return "Light Sensor";
+    default:
+      return "Unknown";
+  }
 }
 
 String getTimeAgo(unsigned long timestamp) {
