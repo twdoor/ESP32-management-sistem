@@ -32,6 +32,8 @@ struct DeviceConfig {
   uint8_t slave_count = 0;
   char wifi_ssid[64] = "";
   char wifi_password[64] = "";
+  char ap_name[32] = "ESP32-SensorHub";
+  char ap_password[32] = "sensornetwork";
   uint32_t checksum = 0;
 };
 
@@ -256,12 +258,17 @@ void setupNetwork() {
   
   if (config.create_ap) {
     WiFi.softAPConfig(ap_ip, ap_gateway, ap_subnet);
-    bool success = (strlen(ap_password) >= 8) ? 
-                   WiFi.softAP(ap_ssid, ap_password) : 
-                   WiFi.softAP(ap_ssid);
+    bool success;
+    
+    // Use configured AP name and password
+    if (strlen(config.ap_password) >= 8) {
+      success = WiFi.softAP(config.ap_name, config.ap_password);
+    } else {
+      success = WiFi.softAP(config.ap_name); // Open network if password too short
+    }
     
     if (success) {
-      Serial.printf("AP started - SSID: %s, IP: %s\n", ap_ssid, WiFi.softAPIP().toString().c_str());
+      Serial.printf("AP started - SSID: %s, IP: %s\n", config.ap_name, WiFi.softAPIP().toString().c_str());
     }
   } else if (strlen(config.wifi_ssid) > 0) {
     WiFi.begin(config.wifi_ssid, config.wifi_password);
@@ -288,7 +295,7 @@ void setupWebServer() {
   // Serve main page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     String html = R"(
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html>
 <head>
     <meta charset="UTF-8">
@@ -562,10 +569,31 @@ server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
       // If device already has a valid slave ID (2-20), keep it
     }
     
-    // Parse WiFi settings
-    strncpy(config.wifi_ssid, doc["wifiSsid"] | "", sizeof(config.wifi_ssid) - 1);
-    strncpy(config.wifi_password, doc["wifiPassword"] | "", sizeof(config.wifi_password) - 1);
-    config.create_ap = (strlen(config.wifi_ssid) == 0);
+    // Parse network settings (only for master devices)
+    if (config.is_master) {
+      String networkMode = doc["networkMode"] | "ap";
+      config.create_ap = (networkMode == "ap");
+      
+      if (config.create_ap) {
+        // AP mode settings
+        strncpy(config.ap_name, doc["apName"] | "ESP32-SensorHub", sizeof(config.ap_name) - 1);
+        strncpy(config.ap_password, doc["apPassword"] | "", sizeof(config.ap_password) - 1);
+        // Clear WiFi settings when using AP mode
+        strcpy(config.wifi_ssid, "");
+        strcpy(config.wifi_password, "");
+      } else {
+        // WiFi client mode settings
+        strncpy(config.wifi_ssid, doc["wifiSsid"] | "", sizeof(config.wifi_ssid) - 1);
+        strncpy(config.wifi_password, doc["wifiPassword"] | "", sizeof(config.wifi_password) - 1);
+      }
+    } else {
+      // Slave devices don't create networks
+      config.create_ap = false;
+      strcpy(config.wifi_ssid, "");
+      strcpy(config.wifi_password, "");
+      strcpy(config.ap_name, "");
+      strcpy(config.ap_password, "");
+    }
     
     // Parse MAC addresses
     if (config.is_master) {
@@ -690,9 +718,9 @@ void sendWebSocketUpdate() {
     JsonObject device = devices.createNestedObject();
     device["id"] = i + 1;
     
-    // Try to get a meaningful device name
-    if (deviceReadings[i].sender_id > 0) {
-      device["name"] = "Slave Device " + String(i + 1);
+    // Use the actual device name from the received message if available
+    if (deviceReadings[i].sender_id > 0 && strlen(deviceReadings[i].device_name) > 0) {
+      device["name"] = String(deviceReadings[i].device_name);
     } else {
       device["name"] = "Device " + String(i + 1);
     }
@@ -1125,13 +1153,26 @@ String getSetupPageHTML() {
                 <small>Enter the MAC address of the master device</small>
             </div>
             
-            <div class="form-group">
-                <label for="wifiSsid">WiFi Network Name (optional)</label>
-                <input type="text" id="wifiSsid" name="wifiSsid" placeholder="Your WiFi network name">
+            <div class="form-group conditional" id="networkSection">
+                <label for="networkMode">Network Mode</label>
+                <select id="networkMode" name="networkMode">
+                    <option value="ap">Create Access Point (AP)</option>
+                    <option value="wifi">Connect to WiFi Network</option>
+                </select>
             </div>
             
-            <div class="form-group">
-                <label for="wifiPassword">WiFi Password (optional)</label>
+            <div class="form-group conditional" id="apSection">
+                <label for="apName">Access Point Name</label>
+                <input type="text" id="apName" name="apName" placeholder="ESP32-SensorHub" value="ESP32-SensorHub">
+                <label for="apPassword" style="margin-top: 10px;">Access Point Password (min 8 characters)</label>
+                <input type="password" id="apPassword" name="apPassword" placeholder="sensornetwork" value="sensornetwork" minlength="8">
+                <small>Leave empty for open network (not recommended)</small>
+            </div>
+            
+            <div class="form-group conditional" id="wifiSection">
+                <label for="wifiSsid">WiFi Network Name</label>
+                <input type="text" id="wifiSsid" name="wifiSsid" placeholder="Your WiFi network name">
+                <label for="wifiPassword" style="margin-top: 10px;">WiFi Password</label>
                 <input type="password" id="wifiPassword" name="wifiPassword" placeholder="Your WiFi password">
             </div>
             
@@ -1143,18 +1184,38 @@ String getSetupPageHTML() {
         const isMasterCheckbox = document.getElementById('isMaster');
         const masterSection = document.getElementById('masterSection');
         const slaveSection = document.getElementById('slaveSection');
+        const networkSection = document.getElementById('networkSection');
+        const networkMode = document.getElementById('networkMode');
+        const apSection = document.getElementById('apSection');
+        const wifiSection = document.getElementById('wifiSection');
         
         function toggleSections() {
             if (isMasterCheckbox.checked) {
                 masterSection.style.display = 'block';
                 slaveSection.style.display = 'none';
+                networkSection.style.display = 'block';
+                toggleNetworkMode();
             } else {
                 masterSection.style.display = 'none';
                 slaveSection.style.display = 'block';
+                networkSection.style.display = 'none';
+                apSection.style.display = 'none';
+                wifiSection.style.display = 'none';
+            }
+        }
+        
+        function toggleNetworkMode() {
+            if (networkMode.value === 'ap') {
+                apSection.style.display = 'block';
+                wifiSection.style.display = 'none';
+            } else {
+                apSection.style.display = 'none';
+                wifiSection.style.display = 'block';
             }
         }
         
         isMasterCheckbox.addEventListener('change', toggleSections);
+        networkMode.addEventListener('change', toggleNetworkMode);
         toggleSections(); // Initial setup
         
         document.getElementById('setupForm').addEventListener('submit', function(e) {
@@ -1167,6 +1228,9 @@ String getSetupPageHTML() {
                 moduleType: parseInt(formData.get('moduleType')),
                 slaveMacs: formData.get('slaveMacs'),
                 masterMac: formData.get('masterMac'),
+                networkMode: formData.get('networkMode'),
+                apName: formData.get('apName'),
+                apPassword: formData.get('apPassword'),
                 wifiSsid: formData.get('wifiSsid'),
                 wifiPassword: formData.get('wifiPassword')
             };

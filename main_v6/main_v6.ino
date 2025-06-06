@@ -5,6 +5,30 @@
 #include <ESPmDNS.h>
 #include <EEPROM.h>
 #include <ArduinoJson.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+
+// ==================== OLED DISPLAY CONFIGURATION ====================
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1  // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C // Usually 0x3C for 128x64
+
+// I2C pins (already defined by your hardware setup)
+#define I2C_SDA 21
+#define I2C_SCL 22
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Display update timing
+unsigned long lastDisplayUpdate = 0;
+const unsigned long DISPLAY_UPDATE_INTERVAL = 1000; // Update every 1 second
+int displayPage = 0; // Current display page
+const int MAX_DISPLAY_PAGES = 3; // Number of display pages
+unsigned long pageChangeTime = 0;
+const unsigned long PAGE_DURATION = 3000; // Show each page for 3 seconds
 
 // ==================== CONFIGURATION ====================
 // These will be loaded from EEPROM or set during first-time setup
@@ -32,6 +56,8 @@ struct DeviceConfig {
   uint8_t slave_count = 0;
   char wifi_ssid[64] = "";
   char wifi_password[64] = "";
+  char ap_name[32] = "ESP32-SensorHub";
+  char ap_password[32] = "sensornetwork";
   uint32_t checksum = 0;
 };
 
@@ -89,6 +115,307 @@ bool dataChanged = false;
 unsigned long lastWSUpdate = 0;
 uint16_t currentUpdateInterval = UPDATE_INTERVAL / 1000;
 
+// ==================== DISPLAY FUNCTIONS ====================
+void initDisplay() {
+  // Initialize I2C with custom pins
+  Wire.begin(I2C_SDA, I2C_SCL);
+  
+  // Initialize display
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    // Continue without display
+    return;
+  }
+  
+  Serial.println("OLED Display initialized successfully");
+  
+  // Clear the buffer
+  display.clearDisplay();
+  
+  // Show startup message
+  displayStartupMessage();
+  
+  delay(2000);
+}
+
+void displayStartupMessage() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  
+  display.println(F("ESP32 Sensor Network"));
+  display.println(F("=================="));
+  display.println();
+  display.print(F("Device: "));
+  display.println(config.device_name);
+  display.print(F("Type: "));
+  display.println(IS_MASTER ? "Master" : "Slave");
+  display.print(F("ID: "));
+  display.println(DEVICE_ID);
+  
+  display.display();
+}
+
+void displaySetupMode() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  
+  display.println(F("SETUP MODE"));
+  display.println(F("=========="));
+  display.println();
+  display.println(F("Connect to WiFi:"));
+  display.println(F("ESP32-Setup"));
+  display.println(F("Password: 12345678"));
+  display.println();
+  display.print(F("IP: "));
+  display.println(WiFi.softAPIP());
+  
+  display.display();
+}
+
+void updateDisplay() {
+  unsigned long currentTime = millis();
+  
+  if (currentTime - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
+    if (setupMode) {
+      displaySetupMode();
+    } else {
+      // Auto-cycle through pages
+      if (currentTime - pageChangeTime >= PAGE_DURATION) {
+        displayPage = (displayPage + 1) % MAX_DISPLAY_PAGES;
+        pageChangeTime = currentTime;
+      }
+      
+      switch (displayPage) {
+        case 0:
+          displaySystemInfo();
+          break;
+        case 1:
+          displaySensorData();
+          break;
+        case 2:
+          displayNetworkInfo();
+          break;
+      }
+    }
+    
+    lastDisplayUpdate = currentTime;
+  }
+}
+
+void displaySystemInfo() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  
+  // Header
+  display.println(F("SYSTEM STATUS"));
+  display.println(F("============="));
+  
+  // Device info
+  display.print(F("Device: "));
+  display.println(config.device_name);
+  
+  display.print(F("Type: "));
+  display.print(IS_MASTER ? "Master" : "Slave");
+  display.print(F(" (ID:"));
+  display.print(DEVICE_ID);
+  display.println(F(")"));
+  
+  // Uptime
+  display.print(F("Uptime: "));
+  unsigned long uptimeSeconds = millis() / 1000;
+  if (uptimeSeconds < 60) {
+    display.print(uptimeSeconds);
+    display.println(F("s"));
+  } else if (uptimeSeconds < 3600) {
+    display.print(uptimeSeconds / 60);
+    display.println(F("m"));
+  } else {
+    display.print(uptimeSeconds / 3600);
+    display.println(F("h"));
+  }
+  
+  // Active devices (for master)
+  if (IS_MASTER) {
+    int activeCount = 0;
+    unsigned long currentTime = millis();
+    for (int i = 0; i < MAX_PEERS; i++) {
+      if (deviceActive[i] && (currentTime - deviceLastSeen[i] <= DEVICE_TIMEOUT)) {
+        activeCount++;
+      }
+    }
+    display.print(F("Active: "));
+    display.print(activeCount);
+    display.print(F("/"));
+    display.println(config.slave_count + 1);
+  }
+  
+  // Page indicator
+  display.setCursor(115, 57);
+  display.print(F("1/3"));
+  
+  display.display();
+}
+
+void displaySensorData() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  
+  // Header
+  display.println(F("SENSOR DATA"));
+  display.println(F("==========="));
+  
+  if (MODULE_TYPE > 0) {
+    // This device's sensor data
+    int idx = DEVICE_ID - 1;
+    display.print(F("Local (ID "));
+    display.print(DEVICE_ID);
+    display.println(F("):"));
+    
+    if (MODULE_TYPE == 1) { // Temperature & Humidity
+      if (deviceReadings[idx].temperature > -999) {
+        display.print(F("Temp: "));
+        display.print(deviceReadings[idx].temperature, 1);
+        display.println(F("C"));
+        
+        display.print(F("Humid: "));
+        display.print(deviceReadings[idx].humidity, 1);
+        display.println(F("%"));
+      } else {
+        display.println(F("No temp/humid data"));
+      }
+    } else if (MODULE_TYPE == 2) { // Light
+      if (deviceReadings[idx].light_value > -999) {
+        display.print(F("Light: "));
+        display.print(deviceReadings[idx].light_value, 1);
+        display.println(F("%"));
+      } else {
+        display.println(F("No light data"));
+      }
+    }
+  } else if (IS_MASTER) {
+    // Show data from slaves
+    bool foundData = false;
+    unsigned long currentTime = millis();
+    
+    for (int i = 0; i < MAX_PEERS && !foundData; i++) {
+      if (i == (DEVICE_ID - 1)) continue; // Skip self
+      
+      if (deviceActive[i] && (currentTime - deviceLastSeen[i] <= DEVICE_TIMEOUT)) {
+        display.print(F("Device "));
+        display.print(i + 1);
+        display.println(F(":"));
+        
+        if (deviceReadings[i].module_type == 1) {
+          display.print(F("T:"));
+          display.print(deviceReadings[i].temperature, 1);
+          display.print(F("C H:"));
+          display.print(deviceReadings[i].humidity, 1);
+          display.println(F("%"));
+        } else if (deviceReadings[i].module_type == 2) {
+          display.print(F("Light: "));
+          display.print(deviceReadings[i].light_value, 1);
+          display.println(F("%"));
+        }
+        foundData = true;
+      }
+    }
+    
+    if (!foundData) {
+      display.println(F("No sensor data"));
+      display.println(F("available"));
+    }
+  } else {
+    display.println(F("No sensors on"));
+    display.println(F("this device"));
+  }
+  
+  // Page indicator
+  display.setCursor(115, 57);
+  display.print(F("2/3"));
+  
+  display.display();
+}
+
+void displayNetworkInfo() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  
+  // Header
+  display.println(F("NETWORK INFO"));
+  display.println(F("============"));
+  
+  // WiFi Status
+  if (config.create_ap) {
+    display.println(F("Mode: Access Point"));
+    display.print(F("SSID: "));
+    display.println(config.ap_name);
+    display.print(F("IP: "));
+    display.println(WiFi.softAPIP());
+  } else if (WiFi.status() == WL_CONNECTED) {
+    display.println(F("Mode: WiFi Client"));
+    display.print(F("SSID: "));
+    display.println(config.wifi_ssid);
+    display.print(F("IP: "));
+    display.println(WiFi.localIP());
+  } else {
+    display.println(F("WiFi: Disconnected"));
+  }
+  
+  // MAC Address (abbreviated)
+  String mac = WiFi.macAddress();
+  display.print(F("MAC: ..."));
+  display.println(mac.substring(12)); // Show last 6 characters
+  
+  // ESP-NOW Status
+  display.print(F("ESP-NOW: "));
+  display.println(F("Active"));
+  
+  // Page indicator
+  display.setCursor(115, 57);
+  display.print(F("3/3"));
+  
+  display.display();
+}
+
+void displayError(const char* message) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  
+  display.println(F("ERROR"));
+  display.println(F("====="));
+  display.println();
+  display.println(message);
+  
+  display.display();
+}
+
+void displayMessage(const char* title, const char* message, int displayTime = 2000) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  
+  display.println(title);
+  display.println(F("============="));
+  display.println();
+  display.println(message);
+  
+  display.display();
+  delay(displayTime);
+}
+
 // ==================== FUNCTION DECLARATIONS ====================
 void loadConfiguration();
 void saveConfiguration();
@@ -124,11 +451,15 @@ void setup() {
   Serial.println();
   Serial.println("ESP32 Lightweight Sensor Network Starting...");
 
+  // Initialize OLED display first
+  initDisplay();
+
   EEPROM.begin(1024);
   loadConfiguration();
   
   if (!config.configured) {
     Serial.println("First-time setup required - entering setup mode");
+    displayMessage("SETUP REQUIRED", "First-time setup\nneeded", 3000);
     enterSetupMode();
     return;
   }
@@ -141,6 +472,9 @@ void setup() {
   
   Serial.printf("Configuration loaded - %s, ID: %d, Module: %s\n", 
                 IS_MASTER ? "MASTER" : "SLAVE", DEVICE_ID, getModuleTypeName(MODULE_TYPE).c_str());
+
+  // Show configuration on display
+  displayStartupMessage();
 
   // Initialize device arrays
   for (int i = 0; i < MAX_PEERS; i++) {
@@ -165,11 +499,19 @@ void setup() {
   if (!setupMode) {
     initESPNow();
   }
+
+  // Initialize display timing
+  lastDisplayUpdate = millis();
+  pageChangeTime = millis();
 }
+
 
 // ==================== MAIN LOOP ====================
 void loop() {
   checkSetupButton();
+  
+  // Update display
+  updateDisplay();
   
   if (setupMode) {
     delay(10);
@@ -205,6 +547,7 @@ void loop() {
   
   delay(10);
 }
+
 
 // ==================== CONFIGURATION FUNCTIONS ====================
 void loadConfiguration() {
@@ -247,6 +590,9 @@ void enterSetupMode() {
   Serial.print("Setup URL: http://");
   Serial.println(WiFi.softAPIP());
   
+  // Update display to show setup mode
+  displaySetupMode();
+  
   setupWebServer(); // Setup web server for configuration
 }
 
@@ -256,16 +602,23 @@ void setupNetwork() {
   
   if (config.create_ap) {
     WiFi.softAPConfig(ap_ip, ap_gateway, ap_subnet);
-    bool success = (strlen(ap_password) >= 8) ? 
-                   WiFi.softAP(ap_ssid, ap_password) : 
-                   WiFi.softAP(ap_ssid);
+    bool success;
+    
+    // Use configured AP name and password
+    if (strlen(config.ap_password) >= 8) {
+      success = WiFi.softAP(config.ap_name, config.ap_password);
+    } else {
+      success = WiFi.softAP(config.ap_name); // Open network if password too short
+    }
     
     if (success) {
-      Serial.printf("AP started - SSID: %s, IP: %s\n", ap_ssid, WiFi.softAPIP().toString().c_str());
+      Serial.printf("AP started - SSID: %s, IP: %s\n", config.ap_name, WiFi.softAPIP().toString().c_str());
+      displayMessage("AP STARTED", ("SSID: " + String(config.ap_name) + "\nIP: " + WiFi.softAPIP().toString()).c_str());
     }
   } else if (strlen(config.wifi_ssid) > 0) {
     WiFi.begin(config.wifi_ssid, config.wifi_password);
     Serial.print("Connecting to WiFi");
+    displayMessage("CONNECTING", ("WiFi: " + String(config.wifi_ssid)).c_str());
     
     int retries = 0;
     while (WiFi.status() != WL_CONNECTED && retries < 20) {
@@ -276,9 +629,12 @@ void setupNetwork() {
     
     if (WiFi.status() == WL_CONNECTED) {
       Serial.printf("\nConnected to %s, IP: %s\n", config.wifi_ssid, WiFi.localIP().toString().c_str());
+      displayMessage("WIFI CONNECTED", ("IP: " + WiFi.localIP().toString()).c_str());
       if (MDNS.begin(hostname)) {
         Serial.printf("mDNS started: http://%s.local\n", hostname);
       }
+    } else {
+      displayMessage("WIFI FAILED", "Connection failed");
     }
   }
 }
@@ -288,7 +644,7 @@ void setupWebServer() {
   // Serve main page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     String html = R"(
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html>
 <head>
     <meta charset="UTF-8">
@@ -562,10 +918,31 @@ server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
       // If device already has a valid slave ID (2-20), keep it
     }
     
-    // Parse WiFi settings
-    strncpy(config.wifi_ssid, doc["wifiSsid"] | "", sizeof(config.wifi_ssid) - 1);
-    strncpy(config.wifi_password, doc["wifiPassword"] | "", sizeof(config.wifi_password) - 1);
-    config.create_ap = (strlen(config.wifi_ssid) == 0);
+    // Parse network settings (only for master devices)
+    if (config.is_master) {
+      String networkMode = doc["networkMode"] | "ap";
+      config.create_ap = (networkMode == "ap");
+      
+      if (config.create_ap) {
+        // AP mode settings
+        strncpy(config.ap_name, doc["apName"] | "ESP32-SensorHub", sizeof(config.ap_name) - 1);
+        strncpy(config.ap_password, doc["apPassword"] | "", sizeof(config.ap_password) - 1);
+        // Clear WiFi settings when using AP mode
+        strcpy(config.wifi_ssid, "");
+        strcpy(config.wifi_password, "");
+      } else {
+        // WiFi client mode settings
+        strncpy(config.wifi_ssid, doc["wifiSsid"] | "", sizeof(config.wifi_ssid) - 1);
+        strncpy(config.wifi_password, doc["wifiPassword"] | "", sizeof(config.wifi_password) - 1);
+      }
+    } else {
+      // Slave devices don't create networks
+      config.create_ap = false;
+      strcpy(config.wifi_ssid, "");
+      strcpy(config.wifi_password, "");
+      strcpy(config.ap_name, "");
+      strcpy(config.ap_password, "");
+    }
     
     // Parse MAC addresses
     if (config.is_master) {
@@ -690,9 +1067,9 @@ void sendWebSocketUpdate() {
     JsonObject device = devices.createNestedObject();
     device["id"] = i + 1;
     
-    // Try to get a meaningful device name
-    if (deviceReadings[i].sender_id > 0) {
-      device["name"] = "Slave Device " + String(i + 1);
+    // Use the actual device name from the received message if available
+    if (deviceReadings[i].sender_id > 0 && strlen(deviceReadings[i].device_name) > 0) {
+      device["name"] = String(deviceReadings[i].device_name);
     } else {
       device["name"] = "Device " + String(i + 1);
     }
@@ -914,6 +1291,7 @@ void checkSetupButton() {
   if (currentButtonState == LOW && lastButtonState == HIGH) {
     buttonPressTime = millis();
     Serial.println("Setup button pressed - hold for 3 seconds to enter setup mode");
+    displayMessage("BUTTON PRESS", "Hold 3s for setup", 1000);
   }
   
   if (currentButtonState == LOW && lastButtonState == LOW) {
@@ -921,6 +1299,7 @@ void checkSetupButton() {
     
     if (holdTime >= BUTTON_HOLD_TIME) {
       Serial.println("Setup button held for 3 seconds - entering setup mode");
+      displayMessage("ENTERING SETUP", "Clearing config...", 2000);
       
       config = DeviceConfig();
       saveConfiguration();
@@ -940,6 +1319,7 @@ void checkSetupButton() {
   
   lastButtonState = currentButtonState;
 }
+
 
 // ==================== UTILITY FUNCTIONS ====================
 String getModuleTypeName(uint8_t type) {
@@ -1125,13 +1505,26 @@ String getSetupPageHTML() {
                 <small>Enter the MAC address of the master device</small>
             </div>
             
-            <div class="form-group">
-                <label for="wifiSsid">WiFi Network Name (optional)</label>
-                <input type="text" id="wifiSsid" name="wifiSsid" placeholder="Your WiFi network name">
+            <div class="form-group conditional" id="networkSection">
+                <label for="networkMode">Network Mode</label>
+                <select id="networkMode" name="networkMode">
+                    <option value="ap">Create Access Point (AP)</option>
+                    <option value="wifi">Connect to WiFi Network</option>
+                </select>
             </div>
             
-            <div class="form-group">
-                <label for="wifiPassword">WiFi Password (optional)</label>
+            <div class="form-group conditional" id="apSection">
+                <label for="apName">Access Point Name</label>
+                <input type="text" id="apName" name="apName" placeholder="ESP32-SensorHub" value="ESP32-SensorHub">
+                <label for="apPassword" style="margin-top: 10px;">Access Point Password (min 8 characters)</label>
+                <input type="password" id="apPassword" name="apPassword" placeholder="sensornetwork" value="sensornetwork" minlength="8">
+                <small>Leave empty for open network (not recommended)</small>
+            </div>
+            
+            <div class="form-group conditional" id="wifiSection">
+                <label for="wifiSsid">WiFi Network Name</label>
+                <input type="text" id="wifiSsid" name="wifiSsid" placeholder="Your WiFi network name">
+                <label for="wifiPassword" style="margin-top: 10px;">WiFi Password</label>
                 <input type="password" id="wifiPassword" name="wifiPassword" placeholder="Your WiFi password">
             </div>
             
@@ -1143,18 +1536,38 @@ String getSetupPageHTML() {
         const isMasterCheckbox = document.getElementById('isMaster');
         const masterSection = document.getElementById('masterSection');
         const slaveSection = document.getElementById('slaveSection');
+        const networkSection = document.getElementById('networkSection');
+        const networkMode = document.getElementById('networkMode');
+        const apSection = document.getElementById('apSection');
+        const wifiSection = document.getElementById('wifiSection');
         
         function toggleSections() {
             if (isMasterCheckbox.checked) {
                 masterSection.style.display = 'block';
                 slaveSection.style.display = 'none';
+                networkSection.style.display = 'block';
+                toggleNetworkMode();
             } else {
                 masterSection.style.display = 'none';
                 slaveSection.style.display = 'block';
+                networkSection.style.display = 'none';
+                apSection.style.display = 'none';
+                wifiSection.style.display = 'none';
+            }
+        }
+        
+        function toggleNetworkMode() {
+            if (networkMode.value === 'ap') {
+                apSection.style.display = 'block';
+                wifiSection.style.display = 'none';
+            } else {
+                apSection.style.display = 'none';
+                wifiSection.style.display = 'block';
             }
         }
         
         isMasterCheckbox.addEventListener('change', toggleSections);
+        networkMode.addEventListener('change', toggleNetworkMode);
         toggleSections(); // Initial setup
         
         document.getElementById('setupForm').addEventListener('submit', function(e) {
@@ -1167,6 +1580,9 @@ String getSetupPageHTML() {
                 moduleType: parseInt(formData.get('moduleType')),
                 slaveMacs: formData.get('slaveMacs'),
                 masterMac: formData.get('masterMac'),
+                networkMode: formData.get('networkMode'),
+                apName: formData.get('apName'),
+                apPassword: formData.get('apPassword'),
                 wifiSsid: formData.get('wifiSsid'),
                 wifiPassword: formData.get('wifiPassword')
             };
