@@ -8,88 +8,67 @@
 #include <ArduinoJson.h>
 
 // ==================== CONFIGURATION ====================
-// Set to true for master device, false for slave
 const bool IS_MASTER = true;
+const bool CREATE_AP = true; 
 
-// Access Point mode configuration (Master only)
-const bool CREATE_AP = true;  // Set to true to create an AP, false to connect to existing WiFi
+const uint8_t DEVICE_ID = 1; 
+const uint8_t MODULE_TYPE = 2;
 
-// Device IDs - must be unique for each device in your network
-const uint8_t DEVICE_ID = 1; // 1 for master, 2+ for slaves
 
-// Module type configuration - determines which sensors this device has
-// 0 = No sensors (master only, no sensor data)
-// 1 = Temperature & Humidity sensor (e.g., DHT22, BME280)
-// 2 = Light sensor (e.g., LDR, TSL2561)
-const uint8_t MODULE_TYPE = 2;  // Set to 0 for master, 1 for temp/hum, 2 for light
-
-// Update interval in milliseconds
 const unsigned long UPDATE_INTERVAL = 10000;
 const unsigned long DISPLAY_UPDATE_INTERVAL = 1000;
 
 // ==================== WIFI & AP SETTINGS ====================
-// For connecting to existing WiFi (when CREATE_AP = false)
 const char* wifi_ssid = "YOUR_WIFI_SSID";
 const char* wifi_password = "YOUR_WIFI_PASSWORD";
 
-// For creating an Access Point (when CREATE_AP = true)
 const char* ap_ssid = "ESP32-SensorHub";
 const char* ap_password = "sensornetwork";
 const IPAddress ap_ip(192, 168, 4, 1);
 const IPAddress ap_gateway(192, 168, 4, 1);
 const IPAddress ap_subnet(255, 255, 255, 0);
 
-// Set a hostname for the master device
 const char* hostname = "esp32-sensor-hub";
-
-// Create web server object on port 80
 WebServer server(80);
 
 // ==================== DISPLAY SETTINGS ====================
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_ADDRESS 0x3C
-
-// Only declare and use the display object if this is a master
 Adafruit_SSD1306* displayPtr = NULL;
 
 // ==================== ESP-NOW SETTINGS ====================
 #define MAX_PEERS 20
 
-// Known device MAC addresses and their types
 typedef struct {
   uint8_t id;
   uint8_t address[6];
   char name[32];
-  uint8_t module_type; // 0=none, 1=temp/hum, 2=light
-} device_info;
+  uint8_t module_type;
 
-// Add all device MACs here - master should be first
+
 device_info devices[] = {
   {1, {0xd4, 0x8a, 0xfc, 0x9f, 0x2f, 0x98}, "Master", 0},     // Master - no sensors
   {2, {0x94, 0xb5, 0x55, 0xf9, 0xff, 0xf0}, "Outdoor", 1},   // Temp/Humidity sensor
   {3, {0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc}, "Indoor", 2}     // Light sensor
-  // Add more devices as needed
 };
 const int NUM_DEVICES = sizeof(devices) / sizeof(device_info);
 
 // ==================== DATA STRUCTURES ====================
-// Data structure for sending readings
 typedef struct sensor_message {
   uint8_t sender_id;
-  uint8_t module_type;     // Type of module sending data
-  float temperature;       // Only valid for module_type 1
-  float humidity;          // Only valid for module_type 1
-  float light_value;       // Only valid for module_type 2 (0-100%)
+  uint8_t module_type;     
+  float temperature;       
+  float humidity;         
+  float light_value;       
   unsigned long timestamp;
 } sensor_message;
 
-// Array to store the latest readings from each device
+
 sensor_message deviceReadings[MAX_PEERS];
 bool deviceActive[MAX_PEERS] = {false};
 unsigned long deviceLastSeen[MAX_PEERS] = {0};
 
-// Variable to store transmission status
 String lastTransmitStatus = "None";
 
 // ==================== FUNCTION DECLARATIONS ====================
@@ -102,7 +81,6 @@ void handleReceivedData(const sensor_message &reading);
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
 
-// WiFi and web server functions (Master only)
 void setupWiFi();
 void setupAccessPoint();
 void initWebServer();
@@ -128,7 +106,6 @@ void setup() {
   Serial.print(getModuleTypeName(MODULE_TYPE));
   Serial.println(")");
 
-  // Initialize device array with invalid values
   for (int i = 0; i < MAX_PEERS; i++) {
     deviceReadings[i].sender_id = 0;
     deviceReadings[i].module_type = 0;
@@ -138,16 +115,14 @@ void setup() {
     deviceReadings[i].timestamp = 0;
   }
 
-  // Set this device's own reading
   deviceReadings[DEVICE_ID - 1].sender_id = DEVICE_ID;
   deviceReadings[DEVICE_ID - 1].module_type = MODULE_TYPE;
   deviceActive[DEVICE_ID - 1] = true;
   deviceLastSeen[DEVICE_ID - 1] = millis();
 
-  // Initialize I2C
+
   Wire.begin();
   
-  // If master, initialize display and WiFi
   if (IS_MASTER) {
     displayPtr = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
     
@@ -164,19 +139,15 @@ void setup() {
       displayPtr->println("Initializing...");
       displayPtr->display();
     }
-    
-    // Setup WiFi or Access Point based on configuration
+   
     if (CREATE_AP) {
       setupAccessPoint();
     } else {
       setupWiFi();
     }
     
-    // Initialize web server
     initWebServer();
   }
-
-  // Initialize ESP-NOW
   initESPNow();
 }
 
@@ -187,29 +158,22 @@ unsigned long lastDisplayUpdate = 0;
 void loop() {
   unsigned long currentTime = millis();
   
-  // Check if it's time to send data (only if module has sensors)
   if (currentTime - lastSendTime >= UPDATE_INTERVAL && MODULE_TYPE > 0) {
-    // Get sensor readings based on module type
     float temp, hum, light;
     getSensorReadings(temp, hum, light);
     
-    // Update local device readings
     deviceReadings[DEVICE_ID - 1].temperature = temp;
     deviceReadings[DEVICE_ID - 1].humidity = hum;
     deviceReadings[DEVICE_ID - 1].light_value = light;
     deviceReadings[DEVICE_ID - 1].timestamp = currentTime;
     deviceLastSeen[DEVICE_ID - 1] = currentTime;
     
-    // Send readings to all peers
     sendReadings();
     
-    // Update last send time
     lastSendTime = currentTime;
   }
   
-  // If master, update display and handle web server
   if (IS_MASTER) {
-    // Update display periodically
     if (currentTime - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
       if (displayPtr != NULL) {
         updateDisplay();
@@ -217,11 +181,9 @@ void loop() {
       lastDisplayUpdate = currentTime;
     }
     
-    // Handle client requests
     server.handleClient();
   }
   
-  // Small delay to prevent CPU hogging
   delay(10);
 }
 
@@ -383,19 +345,15 @@ void registerPeers() {
 
 // ==================== SENSOR FUNCTIONS ====================
 void getSensorReadings(float &temp, float &hum, float &light) {
-  // Initialize all values to invalid
   temp = -999;
   hum = -999;
   light = -999;
   
   switch (MODULE_TYPE) {
     case 0:
-      // No sensors - do nothing
       break;
       
     case 1: {
-      // Temperature & Humidity sensor
-      // Replace with actual sensor code (e.g., DHT22, BME280)
       temp = 25.0 + (random(100) - 50) / 10.0; // 20.0 - 30.0°C
       hum = 50.0 + (random(200) - 100) / 10.0; // 40.0 - 60.0%
       Serial.print("Temperature: ");
@@ -407,10 +365,8 @@ void getSensorReadings(float &temp, float &hum, float &light) {
     }
       
     case 2: {
-      // Light sensor
-      // Replace with actual sensor code (e.g., LDR on analog pin, TSL2561)
-      int rawValue = analogRead(A0); // Read from analog pin A0
-      light = (rawValue / 4095.0) * 100.0; // Convert to percentage (0-100%)
+      int rawValue = analogRead(A0);
+      light = (rawValue / 4095.0) * 100.0; 
       Serial.print("Light value: ");
       Serial.print(light);
       Serial.println("%");
@@ -425,10 +381,8 @@ void getSensorReadings(float &temp, float &hum, float &light) {
 
 // ==================== COMMUNICATION FUNCTIONS ====================
 void sendReadings() {
-  // Only send if we have sensors
   if (MODULE_TYPE == 0) return;
   
-  // Prepare message
   sensor_message message;
   message.sender_id = DEVICE_ID;
   message.module_type = MODULE_TYPE;
@@ -437,7 +391,6 @@ void sendReadings() {
   message.light_value = deviceReadings[DEVICE_ID - 1].light_value;
   message.timestamp = millis();
   
-  // Send to all registered peers
   for (int i = 0; i < NUM_DEVICES; i++) {
     if (devices[i].id == DEVICE_ID) continue;
     
@@ -613,7 +566,6 @@ void handleRoot() {
   html += "  <div class='container'>\n";
   html += "    <h1>ESP32 Sensor Network</h1>\n";
   
-  // Display network mode
   html += "    <div class='mode-info'>\n";
   html += "      <p>Network Mode: <strong>";
   html += CREATE_AP ? "Access Point" : "WiFi Client";
@@ -673,7 +625,7 @@ String getStatusHTML() {
   
   int activeCount = 0;
   unsigned long currentTime = millis();
-  const unsigned long TIMEOUT = 5 * 60 * 1000; // 5 minutes timeout
+  const unsigned long TIMEOUT = 5 * 60 * 1000;
   
   for (int i = 0; i < MAX_PEERS; i++) {
     if (deviceActive[i]) {
@@ -685,7 +637,6 @@ String getStatusHTML() {
     }
   }
   
-  // Add network status
   html += "<div class='device'>\n";
   html += "  <h2>Network Status</h2>\n";
   html += "  <div class='status'>\n";
@@ -698,7 +649,6 @@ String getStatusHTML() {
   html += "  </div>\n";
   html += "</div>\n";
   
-  // Add each device's data
   for (int i = 0; i < NUM_DEVICES; i++) {
     uint8_t id = devices[i].id;
     int idx = id - 1;
@@ -707,7 +657,6 @@ String getStatusHTML() {
       html += "<div class='device'>\n";
       html += "  <h2>" + getDeviceName(id) + " (ID: " + String(id) + ")</h2>\n";
       
-      // Device status and type
       html += "  <div class='status'>\n";
       html += "    <span>Type:</span>\n";
       html += "    <span class='badge badge-info'>" + getModuleTypeName(devices[i].module_type) + "</span>\n";
@@ -727,13 +676,11 @@ String getStatusHTML() {
       html += "  </div>\n";
       
       if (isActive && devices[i].module_type > 0) {
-        // Last seen
         html += "  <div class='status'>\n";
         html += "    <span>Last Seen:</span>\n";
         html += "    <span>" + getTimeAgo(deviceLastSeen[idx]) + "</span>\n";
         html += "  </div>\n";
         
-        // Readings based on module type
         switch (deviceReadings[idx].module_type) {
           case 1:
             html += "  <div class='reading'>\n";
