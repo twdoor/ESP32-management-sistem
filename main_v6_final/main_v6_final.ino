@@ -129,13 +129,13 @@ void displayStartupMessage() {
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
   
-  display.println(F("Sistemul ESP32"));
+  display.println(F("Sistemul Esp32"));
   display.println(F("=================="));
   display.println();
-  display.print(F("Device: "));
+  display.print(F("Modul: "));
   display.println(config.device_name);
-  display.print(F("Type: "));
-  display.println(IS_MASTER ? "Master" : "Slave");
+  display.print(F("tip: "));
+  display.println(IS_MASTER ? "Lider" : "Modul");
   display.print(F("ID: "));
   display.println(DEVICE_ID);
   
@@ -148,12 +148,12 @@ void displaySetupMode() {
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
   
-  display.println(F("SETUP MODE"));
+  display.println(F("Mod Initializare"));
   display.println(F("=========="));
   display.println();
-  display.println(F("Connect to WiFi:"));
-  display.println(F("ESP32-Setup"));
-  display.println(F("Password: 12345678"));
+  display.println(F("Conectativa la WiFi:"));
+  display.println(F("Init_Mod"));
+  display.println(F("Parola: 12345678"));
   display.println();
   display.print(F("IP: "));
   display.println(WiFi.softAPIP());
@@ -196,14 +196,14 @@ void displaySystemInfo() {
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
   
-  display.println(F("SYSTEM STATUS"));
+  display.println(F("Status sistem"));
   display.println(F("============="));
   
-  display.print(F("Device: "));
+  display.print(F("Modul: "));
   display.println(config.device_name);
   
-  display.print(F("Type: "));
-  display.print(IS_MASTER ? "Master" : "Slave");
+  display.print(F("tip: "));
+  display.print(IS_MASTER ? "Lider" : "Modul");
   display.print(F(" (ID:"));
   display.print(DEVICE_ID);
   display.println(F(")"));
@@ -229,7 +229,7 @@ void displaySystemInfo() {
         activeCount++;
       }
     }
-    display.print(F("Active: "));
+    display.print(F("Activ: "));
     display.print(activeCount);
     display.print(F("/"));
     display.println(config.slave_count + 1);
@@ -247,7 +247,7 @@ void displaySensorData() {
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
   
-  display.println(F("SENSOR DATA"));
+  display.println(F("Date Masurate"));
   display.println(F("==========="));
   
   if (MODULE_TYPE > 0) {
@@ -262,19 +262,19 @@ void displaySensorData() {
         display.print(deviceReadings[idx].temperature, 1);
         display.println(F("C"));
         
-        display.print(F("Humid: "));
+        display.print(F("Umid: "));
         display.print(deviceReadings[idx].humidity, 1);
         display.println(F("%"));
       } else {
-        display.println(F("No temp/humid data"));
+        display.println(F("No temp/umid data"));
       }
     } else if (MODULE_TYPE == 2) { // Lumina
       if (deviceReadings[idx].light_value > -999) {
-        display.print(F("Light: "));
+        display.print(F("Niv Lum: "));
         display.print(deviceReadings[idx].light_value, 1);
         display.println(F("%"));
       } else {
-        display.println(F("No light data"));
+        display.println(F("No lum data"));
       }
     }
   } else if (IS_MASTER) {
@@ -285,7 +285,7 @@ void displaySensorData() {
       if (i == (DEVICE_ID - 1)) continue;
       
       if (deviceActive[i] && (currentTime - deviceLastSeen[i] <= DEVICE_TIMEOUT)) {
-        display.print(F("Device "));
+        display.print(F("Modul "));
         display.print(i + 1);
         display.println(F(":"));
         
@@ -296,7 +296,7 @@ void displaySensorData() {
           display.print(deviceReadings[i].humidity, 1);
           display.println(F("%"));
         } else if (deviceReadings[i].module_type == 2) {
-          display.print(F("Light: "));
+          display.print(F("L: "));
           display.print(deviceReadings[i].light_value, 1);
           display.println(F("%"));
         }
@@ -305,12 +305,11 @@ void displaySensorData() {
     }
     
     if (!foundData) {
-      display.println(F("No sensor data"));
-      display.println(F("available"));
+      display.println(F("Fara date gasite"));
     }
   } else {
-    display.println(F("No sensors on"));
-    display.println(F("this device"));
+    display.println(F("Niciun senzor"));
+    display.println(F("in modul"));
   }
   
   display.setCursor(115, 57);
@@ -325,23 +324,23 @@ void displayNetworkInfo() {
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
   
-  display.println(F("NETWORK INFO"));
+  display.println(F("Info Network"));
   display.println(F("============"));
   
   if (config.create_ap) {
-    display.println(F("Mode: Access Point"));
-    display.print(F("SSID: "));
+    display.println(F("Mod: Punct de acces"));
+    display.print(F("Wifi: "));
     display.println(config.ap_name);
     display.print(F("IP: "));
     display.println(WiFi.softAPIP());
   } else if (WiFi.status() == WL_CONNECTED) {
-    display.println(F("Mode: WiFi Client"));
-    display.print(F("SSID: "));
+    display.println(F("Mod: WiFi client"));
+    display.print(F("Wifi: "));
     display.println(config.wifi_ssid);
     display.print(F("IP: "));
     display.println(WiFi.localIP());
   } else {
-    display.println(F("WiFi: Disconnected"));
+    display.println(F("WiFi: Deconectat"));
   }
   
   String mac = WiFi.macAddress();
@@ -419,7 +418,7 @@ String getTimeAgo(unsigned long timestamp);
 void setup() {
   Serial.begin(115200);
   Serial.println();
-  Serial.println("ESP32 Lightweight Sensor Network Starting...");
+  Serial.println("Initializare Network Esp32...");
 
   initDisplay();
 
@@ -427,25 +426,22 @@ void setup() {
   loadConfiguration();
   
   if (!config.configured) {
-    Serial.println("First-time setup required - entering setup mode");
+    Serial.println("Necesita initializare de baza");
     displayMessage("SETUP REQUIRED", "First-time setup\nneeded", 3000);
     enterSetupMode();
     return;
   }
   
-  // Apply loaded configuration
   IS_MASTER = config.is_master;
   CREATE_AP = config.create_ap;
   DEVICE_ID = config.device_id;
   MODULE_TYPE = config.module_type;
   
-  Serial.printf("Configuration loaded - %s, ID: %d, Module: %s\n", 
-                IS_MASTER ? "MASTER" : "SLAVE", DEVICE_ID, getModuleTypeName(MODULE_TYPE).c_str());
+  Serial.printf("Configurare incarcata - %s, ID: %d, Modul: %s\n", 
+                IS_MASTER ? "LIDER" : "MODUL", DEVICE_ID, getModuleTypeName(MODULE_TYPE).c_str());
 
-  // Show configuration on display
   displayStartupMessage();
 
-  // Initialize device arrays
   for (int i = 0; i < MAX_PEERS; i++) {
     deviceReadings[i] = {0, 0, -999, -999, -999, 0};
   }
@@ -490,7 +486,6 @@ void loop() {
   static unsigned long lastSendTime = 0;
   unsigned long currentTime = millis();
   
-  // Send sensor data if this device has sensors
   if (currentTime - lastSendTime >= (currentUpdateInterval * 1000) && MODULE_TYPE > 0) {
     float temp, hum, light;
     getSensorReadings(temp, hum, light);
@@ -507,7 +502,6 @@ void loop() {
     lastSendTime = currentTime;
   }
   
-  // WebSocket updates (fast and lightweight)
   if (IS_MASTER && (currentTime - lastWSUpdate >= WS_UPDATE_INTERVAL || dataChanged)) {
     sendWebSocketUpdate();
     lastWSUpdate = currentTime;
@@ -524,10 +518,10 @@ void loadConfiguration() {
   uint32_t calculated = calculateChecksum(config);
   
   if (config.checksum != calculated) {
-    Serial.println("Configuration checksum mismatch - using defaults");
+    Serial.println("Control nepotrivit - configurare cu valori implicite");
     config = DeviceConfig();
   } else {
-    Serial.println("Configuration loaded successfully");
+    Serial.println("Configurare incarcata cu succes");
   }
 }
 
@@ -535,7 +529,7 @@ void saveConfiguration() {
   config.checksum = calculateChecksum(config);
   EEPROM.put(0, config);
   EEPROM.commit();
-  Serial.println("Configuration saved to EEPROM");
+  Serial.println("Configurare salvata in EEPROM");
 }
 
 uint32_t calculateChecksum(const DeviceConfig& cfg) {
@@ -553,16 +547,15 @@ void enterSetupMode() {
   setupMode = true;
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(ap_ip, ap_gateway, ap_subnet);
-  WiFi.softAP("ESP32-Setup", "12345678");
+  WiFi.softAP("Init_Mod", "12345678");
   
-  Serial.println("Setup AP started - SSID: ESP32-Setup, Password: 12345678");
+  Serial.println("Punct de Initializare - Wifi: Init_Mod, Password: 12345678");
   Serial.print("Setup URL: http://");
   Serial.println(WiFi.softAPIP());
-  
-  // Update display to show setup mode
+
   displaySetupMode();
   
-  setupWebServer(); // Setup web server for configuration
+  setupWebServer();
 }
 
 // ==================== NETWORK FUNCTIONS ====================
@@ -572,22 +565,21 @@ void setupNetwork() {
   if (config.create_ap) {
     WiFi.softAPConfig(ap_ip, ap_gateway, ap_subnet);
     bool success;
-    
-    // Use configured AP name and password
+
     if (strlen(config.ap_password) >= 8) {
       success = WiFi.softAP(config.ap_name, config.ap_password);
     } else {
-      success = WiFi.softAP(config.ap_name); // Open network if password too short
+      success = WiFi.softAP(config.ap_name);
     }
     
     if (success) {
-      Serial.printf("AP started - SSID: %s, IP: %s\n", config.ap_name, WiFi.softAPIP().toString().c_str());
-      displayMessage("AP STARTED", ("SSID: " + String(config.ap_name) + "\nIP: " + WiFi.softAPIP().toString()).c_str());
+      Serial.printf("AP Deschis - Wif: %s, IP: %s\n", config.ap_name, WiFi.softAPIP().toString().c_str());
+      displayMessage("AP DESCHIS", ("Wifi: " + String(config.ap_name) + "\nIP: " + WiFi.softAPIP().toString()).c_str());
     }
   } else if (strlen(config.wifi_ssid) > 0) {
     WiFi.begin(config.wifi_ssid, config.wifi_password);
-    Serial.print("Connecting to WiFi");
-    displayMessage("CONNECTING", ("WiFi: " + String(config.wifi_ssid)).c_str());
+    Serial.print("Conectare la WiFi");
+    displayMessage("CONECTARE LA", ("WiFi: " + String(config.wifi_ssid)).c_str());
     
     int retries = 0;
     while (WiFi.status() != WL_CONNECTED && retries < 20) {
@@ -597,8 +589,8 @@ void setupNetwork() {
     }
     
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("\nConnected to %s, IP: %s\n", config.wifi_ssid, WiFi.localIP().toString().c_str());
-      displayMessage("WIFI CONNECTED", ("IP: " + WiFi.localIP().toString()).c_str());
+      Serial.printf("\nConnectat la %s, IP: %s\n", config.wifi_ssid, WiFi.localIP().toString().c_str());
+      displayMessage("WIFI CONECTAT", ("IP: " + WiFi.localIP().toString()).c_str());
       if (MDNS.begin(hostname)) {
         Serial.printf("mDNS started: http://%s.local\n", hostname);
       }
@@ -610,7 +602,6 @@ void setupNetwork() {
 
 // ==================== WEB SERVER SETUP ====================
 void setupWebServer() {
-  // Serve main page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     String html = R"(
 <!DOCTYPE html> 
@@ -699,28 +690,28 @@ void setupWebServer() {
     </style>
 </head>
 <body>
-    <div class="connection-status" id="connectionStatus">Connecting...</div>
+    <div class="connection-status" id="connectionStatus">Conectare...</div>
     <div class="container">
         <div class="header">
-            <h1>🌐 ESP32 Sensor Network</h1>
-            <p>Real-time monitoring dashboard</p>
+            <h1>🌐 Sistem Esp32</h1>
+            <p>Bord Monitorizare in timp real</p>
         </div>
         
         <div class="status-bar">
             <div class="status-item">
-                <h3>Network Status</h3>
-                <span id="networkMode">Loading...</span>
+                <h3>Status Network</h3>
+                <span id="networkMode">Incarca...</span>
             </div>
             <div class="status-item">
-                <h3>Active Devices</h3>
+                <h3>Module Active</h3>
                 <span id="activeDevices">0/0</span>
             </div>
             <div class="status-item">
-                <h3>Uptime</h3>
+                <h3>Timp functionare</h3>
                 <span id="uptime">0s</span>
             </div>
             <div class="status-item">
-                <h3>Last Update</h3>
+                <h3>Ultima actualizare</h3>
                 <span id="lastUpdate">Never</span>
             </div>
         </div>
@@ -735,13 +726,13 @@ void setupWebServer() {
         const connectionStatus = document.getElementById('connectionStatus');
         
         ws.onopen = function() {
-            connectionStatus.textContent = '🟢 Connected';
+            connectionStatus.textContent = '🟢 Connectat';
             connectionStatus.className = 'connection-status connected';
             console.log('WebSocket connected');
         };
         
         ws.onclose = function() {
-            connectionStatus.textContent = '🔴 Disconnected';
+            connectionStatus.textContent = '🔴 Deconectat';
             connectionStatus.className = 'connection-status disconnected';
             console.log('WebSocket disconnected');
             // Auto-reconnect after 3 seconds
@@ -749,7 +740,7 @@ void setupWebServer() {
         };
         
         ws.onerror = function(error) {
-            connectionStatus.textContent = '⚠️ Error';
+            connectionStatus.textContent = '⚠️ Eroare';
             connectionStatus.className = 'connection-status disconnected';
             console.error('WebSocket error:', error);
         };
@@ -764,13 +755,11 @@ void setupWebServer() {
         };
         
         function updateDashboard(data) {
-            // Update status bar
             document.getElementById('networkMode').textContent = data.networkMode || 'Unknown';
             document.getElementById('activeDevices').textContent = `${data.activeCount || 0}/${data.totalDevices || 0}`;
             document.getElementById('uptime').textContent = data.uptime || '0s';
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
             
-            // Update device grid
             const deviceGrid = document.getElementById('deviceGrid');
             deviceGrid.innerHTML = '';
             
@@ -797,22 +786,22 @@ void setupWebServer() {
                 sensorData = `
                     <div class="sensor-item">
                         <div class="sensor-value">${device.temperature || '--'}°</div>
-                        <div class="sensor-label">Temperature</div>
+                        <div class="sensor-label">Temperatura</div>
                     </div>
                     <div class="sensor-item">
                         <div class="sensor-value">${device.humidity || '--'}%</div>
-                        <div class="sensor-label">Humidity</div>
+                        <div class="sensor-label">Umiditate</div>
                     </div>
                 `;
             } else if (device.moduleType === 2) {
                 sensorData = `
                     <div class="sensor-item">
                         <div class="sensor-value">${device.light || '--'}%</div>
-                        <div class="sensor-label">Light Level</div>
+                        <div class="sensor-label">Nivel Lumina</div>
                     </div>
                 `;
             } else {
-                sensorData = '<div style="text-align: center; color: #718096;">No sensors</div>';
+                sensorData = '<div style="text-align: center; color: #718096;">Fara senzori</div>';
             }
             
             card.innerHTML = `
@@ -823,13 +812,12 @@ void setupWebServer() {
                 <div class="sensor-data">
                     ${sensorData}
                 </div>
-                ${device.lastSeen ? `<div style="text-align: center; color: #718096; margin-top: 10px; font-size: 0.9em;">Last seen: ${device.lastSeen}</div>` : ''}
+                ${device.lastSeen ? `<div style="text-align: center; color: #718096; margin-top: 10px; font-size: 0.9em;">Ultima actualizare: ${device.lastSeen}</div>` : ''}
             `;
             
             return card;
         }
         
-        // Send ping every 30 seconds to keep connection alive
         setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'ping'}));
@@ -840,8 +828,8 @@ void setupWebServer() {
 </html>
 )";
     
+
     if (setupMode) {
-      // In setup mode, serve configuration page instead
       html = getSetupPageHTML();
     }
     
@@ -855,57 +843,46 @@ void setupWebServer() {
     
     doc["deviceId"] = DEVICE_ID;
     doc["isConfigured"] = config.configured;
-    doc["networkMode"] = config.create_ap ? "Access Point" : "WiFi Client";
+    doc["networkMode"] = config.create_ap ? "Punct de Acces" : "Client WiFi";
     doc["uptime"] = millis();
     
     serializeJson(doc, *response);
     request->send(response);
   });
 
-// Configuration API endpoint
 server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, 
   [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     DynamicJsonDocument doc(1024);
     deserializeJson(doc, (char*)data);
     
-    // Parse and save configuration
-    strncpy(config.device_name, doc["deviceName"] | "Device", sizeof(config.device_name) - 1);
+    strncpy(config.device_name, doc["deviceName"] | "Modul", sizeof(config.device_name) - 1);
     config.is_master = doc["isMaster"] | false;
     config.module_type = doc["moduleType"] | 0;
     
-    // IMPROVED DEVICE ID ASSIGNMENT
     if (config.is_master) {
-      config.device_id = 1;  // Master is always ID 1
+      config.device_id = 1;
     } else {
-      // For slaves, either keep existing ID or assign a new one
       if (config.device_id == 0 || config.device_id == 1) {
-        // Generate a unique device ID based on MAC address
         uint8_t mac[6];
         WiFi.macAddress(mac);
-        config.device_id = 2 + (mac[5] % 18);  // IDs 2-19 for slaves
+        config.device_id = 2 + (mac[5] % 18);
       }
-      // If device already has a valid slave ID (2-20), keep it
     }
     
-    // Parse network settings (only for master devices)
     if (config.is_master) {
       String networkMode = doc["networkMode"] | "ap";
       config.create_ap = (networkMode == "ap");
       
       if (config.create_ap) {
-        // AP mode settings
         strncpy(config.ap_name, doc["apName"] | "SistemEsp32", sizeof(config.ap_name) - 1);
         strncpy(config.ap_password, doc["apPassword"] | "", sizeof(config.ap_password) - 1);
-        // Clear WiFi settings when using AP mode
         strcpy(config.wifi_ssid, "");
         strcpy(config.wifi_password, "");
       } else {
-        // WiFi client mode settings
         strncpy(config.wifi_ssid, doc["wifiSsid"] | "", sizeof(config.wifi_ssid) - 1);
         strncpy(config.wifi_password, doc["wifiPassword"] | "", sizeof(config.wifi_password) - 1);
       }
     } else {
-      // Slave devices don't create networks
       config.create_ap = false;
       strcpy(config.wifi_ssid, "");
       strcpy(config.wifi_password, "");
@@ -913,7 +890,6 @@ server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
       strcpy(config.ap_password, "");
     }
     
-    // Parse MAC addresses
     if (config.is_master) {
       String slaveMacs = doc["slaveMacs"] | "";
       config.slave_count = 0;
@@ -939,8 +915,6 @@ server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
     
     config.configured = true;
     saveConfiguration();
-    
-    // Send success response with assigned device ID
     AsyncResponseStream *response = request->beginResponseStream("application/json");
     DynamicJsonDocument responseDoc(256);
     responseDoc["success"] = true;
@@ -949,16 +923,15 @@ server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
     serializeJson(responseDoc, *response);
     request->send(response);
     
-    Serial.printf("Configuration saved - Device ID: %d, Name: %s\n", config.device_id, config.device_name);
+    Serial.printf("COnfigurare salvata - Modul ID: %d, Name: %s\n", config.device_id, config.device_name);
     
-    // Restart after a delay
     delay(1000);
     ESP.restart();
   });
 
 
   server.begin();
-  Serial.println("Web server started");
+  Serial.println("Web server deschis");
 }
 
 // ==================== WEBSOCKET SETUP ====================
@@ -1006,15 +979,13 @@ void sendWebSocketUpdate() {
   doc["activeCount"] = activeCount;
   doc["totalDevices"] = config.slave_count + 1;
   
-  // Device data
   JsonArray devices = doc.createNestedArray("devices");
   
-  // Add this device (master) if it has sensors OR if it's the master
   if (MODULE_TYPE > 0 || IS_MASTER) {
     JsonObject masterDevice = devices.createNestedObject();
     masterDevice["id"] = DEVICE_ID;
     // Use the configured device name
-    masterDevice["name"] = String(config.device_name) + (IS_MASTER ? " (Master)" : "");
+    masterDevice["name"] = String(config.device_name) + (IS_MASTER ? " (Lider)" : "");
     masterDevice["status"] = "online";
     masterDevice["moduleType"] = MODULE_TYPE;
     
@@ -1026,17 +997,15 @@ void sendWebSocketUpdate() {
     }
   }
   
-  // Add slave devices
   for (int i = 0; i < MAX_PEERS; i++) {
-    if (i == (DEVICE_ID - 1)) continue; // Skip this device
+    if (i == (DEVICE_ID - 1)) continue;
     
     bool isActive = deviceActive[i] && (currentTime - deviceLastSeen[i] <= DEVICE_TIMEOUT);
-    if (!isActive && deviceReadings[i].sender_id == 0) continue; // Skip never-seen devices
+    if (!isActive && deviceReadings[i].sender_id == 0) continue;
     
     JsonObject device = devices.createNestedObject();
     device["id"] = i + 1;
     
-    // Use the actual device name from the received message if available
     if (deviceReadings[i].sender_id > 0 && strlen(deviceReadings[i].device_name) > 0) {
       device["name"] = String(deviceReadings[i].device_name);
     } else {
@@ -1074,17 +1043,15 @@ void handleWebSocketMessage(AsyncWebSocketClient *client, char *data) {
   String type = doc["type"].as<String>();
   
   if (type == "ping") {
-    // Respond to ping with pong
     client->text("{\"type\":\"pong\"}");
     Serial.println("WebSocket ping received, pong sent");
   } 
   else if (type == "setInterval") {
     int newInterval = doc["value"].as<int>();
-    if (newInterval >= 1 && newInterval <= 300) { // 1 second to 5 minutes
+    if (newInterval >= 1 && newInterval <= 300) {
       currentUpdateInterval = newInterval;
       Serial.printf("Update interval changed to: %d seconds\n", currentUpdateInterval);
       
-      // Send confirmation back to client
       DynamicJsonDocument response(256);
       response["type"] = "intervalUpdated";
       response["value"] = currentUpdateInterval;
@@ -1096,12 +1063,10 @@ void handleWebSocketMessage(AsyncWebSocketClient *client, char *data) {
     }
   }
   else if (type == "getStatus") {
-    // Force immediate status update for requesting client
     dataChanged = true;
     Serial.println("Status update requested via WebSocket");
   }
   else if (type == "restart") {
-    // Remote restart command (be careful with this!)
     Serial.println("Remote restart requested via WebSocket");
     client->text("{\"type\":\"restarting\"}");
     delay(1000);
@@ -1259,21 +1224,21 @@ void checkSetupButton() {
   
   if (currentButtonState == LOW && lastButtonState == HIGH) {
     buttonPressTime = millis();
-    Serial.println("Setup button pressed - hold for 3 seconds to enter setup mode");
-    displayMessage("BUTTON PRESS", "Hold 3s for setup", 1000);
+    Serial.println("Buton Reset Apasat - Apasa pentru 3s pentru reseta");
+    displayMessage("RESET APASAT", "Tine 3s apasat", 1000);
   }
   
   if (currentButtonState == LOW && lastButtonState == LOW) {
     unsigned long holdTime = millis() - buttonPressTime;
     
     if (holdTime >= BUTTON_HOLD_TIME) {
-      Serial.println("Setup button held for 3 seconds - entering setup mode");
-      displayMessage("ENTERING SETUP", "Clearing config...", 2000);
+      Serial.println("Reset Apasat 3s - reconfigurare...");
+      displayMessage("ENTERING SETUP", "Reconfigurare...", 2000);
       
       config = DeviceConfig();
       saveConfiguration();
       
-      Serial.println("Configuration cleared - restarting in setup mode");
+      Serial.println("Reconfigurare reusita - resetare inmediata");
       delay(1000);
       ESP.restart();
     }
@@ -1430,74 +1395,74 @@ String getSetupPageHTML() {
 <body>
     <div class="container">
         <div class="header">
-            <h1>🛠️ Device Setup</h1>
-            <p>Configure your ESP32 sensor device</p>
+            <h1>🛠️ Configurare Modul</h1>
+            <p>Configura modulul Esp32</p>
         </div>
         
         <div class="info-box">
-            <h3>📱 Current Device Info</h3>
+            <h3>📱 Info Modul Curent</h3>
             <p><strong>MAC Address:</strong> )" + WiFi.macAddress() + R"(</p>
             <p><strong>Setup IP:</strong> )" + WiFi.softAPIP().toString() + R"(</p>
         </div>
         
         <form id="setupForm">
             <div class="form-group">
-                <label for="deviceName">Device Name</label>
+                <label for="deviceName">Nume Modul</label>
                 <input type="text" id="deviceName" name="deviceName" placeholder="e.g., Kitchen Sensor" required>
             </div>
             
             <div class="form-group">
                 <div class="checkbox-group">
                     <input type="checkbox" id="isMaster" name="isMaster">
-                    <label for="isMaster">This device is a Master (receives data from other devices)</label>
+                    <label for="isMaster">Modul Lider (primeste date)</label>
                 </div>
             </div>
             
             <div class="form-group">
-                <label for="moduleType">Module Type</label>
+                <label for="moduleType">Tip Modul</label>
                 <select id="moduleType" name="moduleType">
-                    <option value="0">No Sensors (Master only)</option>
-                    <option value="1">Temperature & Humidity Sensor</option>
-                    <option value="2">Light Sensor</option>
+                    <option value="0">Fara Senzori (Numai pt Lider)</option>
+                    <option value="1">Temperatura si Umiditate</option>
+                    <option value="2">Nivel Luminos</option>
                 </select>
             </div>
             
             <div class="form-group conditional" id="masterSection">
-                <label for="slaveMacs">Slave Device MAC Addresses (one per line)</label>
+                <label for="slaveMacs">Adrese MAC Module (una per linie)</label>
                 <textarea id="slaveMacs" name="slaveMacs" placeholder="AA:BB:CC:DD:EE:F1&#10;AA:BB:CC:DD:EE:F2&#10;AA:BB:CC:DD:EE:F3"></textarea>
-                <small>Enter the MAC addresses of all slave devices</small>
+                <small>Adauga toate adresele MAC ale modulelor dorite.</small>
             </div>
             
             <div class="form-group conditional" id="slaveSection">
-                <label for="masterMac">Master Device MAC Address</label>
+                <label for="masterMac">Adresa MAC a Liderului</label>
                 <input type="text" id="masterMac" name="masterMac" placeholder="AA:BB:CC:DD:EE:FF">
-                <small>Enter the MAC address of the master device</small>
+                <small>Adauga adresa MAC a modului Lider/small>
             </div>
             
             <div class="form-group conditional" id="networkSection">
                 <label for="networkMode">Network Mode</label>
                 <select id="networkMode" name="networkMode">
-                    <option value="ap">Create Access Point (AP)</option>
-                    <option value="wifi">Connect to WiFi Network</option>
+                    <option value="ap">Creare Punct Acces</option>
+                    <option value="wifi">Conecteaza la un WiFI existent</option>
                 </select>
             </div>
             
             <div class="form-group conditional" id="apSection">
-                <label for="apName">Access Point Name</label>
+                <label for="apName">Nume Punct Acces</label>
                 <input type="text" id="apName" name="apName" placeholder="SistemEsp32" value="SistemEsp32">
-                <label for="apPassword" style="margin-top: 10px;">Access Point Password (min 8 characters)</label>
+                <label for="apPassword" style="margin-top: 10px;">Parola Punct Acces (min 8 caratere)</label>
                 <input type="password" id="apPassword" name="apPassword" placeholder="parola_test" value="parola_test" minlength="8">
-                <small>Leave empty for open network (not recommended)</small>
+                <small>Lasa liber pentru sistem deschis (nerecomandat)</small>
             </div>
             
             <div class="form-group conditional" id="wifiSection">
-                <label for="wifiSsid">WiFi Network Name</label>
+                <label for="wifiSsid">Nume WiFi Network</label>
                 <input type="text" id="wifiSsid" name="wifiSsid" placeholder="Your WiFi network name">
-                <label for="wifiPassword" style="margin-top: 10px;">WiFi Password</label>
+                <label for="wifiPassword" style="margin-top: 10px;">Parola WiFi</label>
                 <input type="password" id="wifiPassword" name="wifiPassword" placeholder="Your WiFi password">
             </div>
             
-            <button type="submit" class="btn">💾 Save Configuration & Restart</button>
+            <button type="submit" class="btn">💾 Salveaza si redeschide</button>
         </form>
     </div>
 
